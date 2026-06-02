@@ -1,0 +1,6 @@
+{
+  "name": "Unitá Anestesia - Escala",
+  "description": "MVP para gestão e escala operacional de equipe de anestesiologistas em tempo real, controle de ocupação de salas, ociosidade e relatório de produtividade.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
