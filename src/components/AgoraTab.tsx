@@ -17,7 +17,8 @@ import {
   Check,
   Search,
   Timer,
-  AlertCircle
+  AlertCircle,
+  Repeat
 } from 'lucide-react';
 import {
   getDoctorsStatuses,
@@ -66,6 +67,8 @@ export default function AgoraTab({
   const [numAtos, setNumAtos] = useState(1);
   const [escalationDate, setEscalationDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [overlapError, setOverlapError] = useState('');
+  const [repeatType, setRepeatType] = useState<'none' | 'indefinitely' | 'defined'>('none');
+  const [repeatWeeks, setRepeatWeeks] = useState('4');
 
   // Editing state
   const [editingEscalation, setEditingEscalation] = useState<Escalation | null>(null);
@@ -197,6 +200,8 @@ export default function AgoraTab({
     setExitTime('');
     setEscalationDate(now.toISOString().split('T')[0]);
     setOverlapError('');
+    setRepeatType('none');
+    setRepeatWeeks('4');
     setIsEscalateModalOpen(true);
   };
 
@@ -217,20 +222,23 @@ export default function AgoraTab({
       return;
     }
 
-    // Convert operational entry HH:mm to full ISO for today
+    // Convert operational entry HH:mm to full ISO on escalationDate
+    const [yr, mo, dy] = escalationDate.split('-').map(Number);
     const [entH, entM] = entryTime.split(':').map(Number);
     const entDate = new Date();
+    entDate.setFullYear(yr, mo - 1, dy);
     entDate.setHours(entH, entM, 0, 0);
 
     let parsedSaidaISO: string | undefined = undefined;
     if (exitTime) {
       const [exH, exM] = exitTime.split(':').map(Number);
       const exDate = new Date();
+      exDate.setFullYear(yr, mo - 1, dy);
       exDate.setHours(exH, exM, 0, 0);
       parsedSaidaISO = exDate.toISOString();
     }
 
-    // Check overlap for the doctor
+    // Check overlap for the doctor on current date
     const overlapDetected = checkOverlap(
       selectedDoctorId,
       entDate.toISOString(),
@@ -248,7 +256,67 @@ export default function AgoraTab({
       return;
     }
 
-    // Create escalation object
+    // Set up weekly replications if requested
+    let numReplications = 0;
+    if (repeatType === 'indefinitely') {
+      numReplications = 24; // Default to 24 weeks (~6 months)
+    } else if (repeatType === 'defined') {
+      const parsedWeeks = parseInt(repeatWeeks);
+      numReplications = isNaN(parsedWeeks) ? 0 : parsedWeeks;
+    }
+
+    const baseTimeMs = entDate.getTime();
+    const futureEscalations: Escalation[] = [];
+    const overlapDates: string[] = [];
+
+    for (let w = 1; w <= numReplications; w++) {
+      const shiftMs = w * 7 * 24 * 60 * 60 * 1000;
+      const repEntDate = new Date(baseTimeMs + shiftMs);
+      
+      let repExitISO: string | undefined = undefined;
+      if (parsedSaidaISO) {
+        repExitISO = new Date(new Date(parsedSaidaISO).getTime() + shiftMs).toISOString();
+      }
+
+      const repDateStr = repEntDate.toISOString().split('T')[0];
+
+      // Check overlap for this doctor on this future date
+      const overlapOnReplica = checkOverlap(
+        selectedDoctorId,
+        repEntDate.toISOString(),
+        repExitISO,
+        [...escalations, ...futureEscalations]
+      );
+
+      if (overlapOnReplica) {
+        overlapDates.push(repEntDate.toLocaleDateString('pt-BR'));
+      } else {
+        futureEscalations.push({
+          id: `esc-${Date.now()}-rep-${w}`,
+          doctorID: selectedDoctorId,
+          doctorName: doc.nome,
+          roomId: selectedRoomId,
+          setorNome: room.setor,
+          salaNome: room.sala,
+          atendimento: ticketNum.trim(),
+          data: repDateStr,
+          entrada: repEntDate.toISOString(),
+          saida: repExitISO,
+          horasManual: customHours ? parseFloat(customHours) : undefined,
+          atosRealizados: repExitISO ? 1 : 0,
+          ativa: !repExitISO
+        });
+      }
+    }
+
+    if (overlapDates.length > 0) {
+      setOverlapError(
+        `O(A) ${doc.nome} já possui escalas que conflitam nos seguintes dias de repetição: ${overlapDates.join(', ')}. Remova os conflitos ou desative a repetição.`
+      );
+      return;
+    }
+
+    // Create current escalation object
     const newEsc: Escalation = {
       id: `esc-${Date.now()}`,
       doctorID: selectedDoctorId,
@@ -265,19 +333,25 @@ export default function AgoraTab({
       ativa: !parsedSaidaISO // active if no end time
     };
 
-    const updatedEscalations = [...escalations, newEsc];
+    const updatedEscalations = [...escalations, newEsc, ...futureEscalations];
     setEscalations(updatedEscalations);
     localStorage.setItem('unita_escalations', JSON.stringify(updatedEscalations));
 
     // Audit action
+    let repeatDescription = '';
+    if (repeatType === 'indefinitely') {
+      repeatDescription = ` (replicada semanalmente por período indeterminado: +${numReplications} semanas agendadas)`;
+    } else if (repeatType === 'defined') {
+      repeatDescription = ` (replicada semanalmente por período determinado de ${numReplications} semanas)`;
+    }
+
     logSystemEvent(
       session.usuario,
       session.perfil,
       'Nova escala',
-      `Agendou escala para ${doc.nome} em ${room.setor} - ${room.sala}. Atendimento: ${newEsc.atendimento || 'Sem ID'}.`,
+      `Agendou escala para ${doc.nome} em ${room.setor} - ${room.sala}. Atendimento: ${newEsc.atendimento || 'Sem ID'}.${repeatDescription}`,
     );
 
-    // Also update doctor's available state if active (they are now Escalado)
     setIsEscalateModalOpen(false);
   };
 
@@ -1148,6 +1222,90 @@ export default function AgoraTab({
                   onChange={(e) => setEntryTime(e.target.value)}
                   className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-600 text-slate-800 bg-slate-50 animate-fade-in font-mono"
                 />
+              </div>
+
+              {/* Recurrence Pattern Configuration Group */}
+              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-3" id="recurrence-configuration-block">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 px-1.5 rounded bg-blue-100 text-blue-800 text-[9px] font-black uppercase tracking-wider">Novo</span>
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <Repeat className="h-3.5 w-3.5 text-blue-600" /> Replicar Escalação
+                  </label>
+                </div>
+                
+                <p className="text-[11px] text-slate-500 leading-normal">
+                  Optar por repetir esta escala semanalmente no mesmo dia da semana e horário.
+                </p>
+
+                {/* Selection Radios dressed as micro pills/cards */}
+                <div className="grid grid-cols-3 gap-1.5" id="recurrence-type-selector">
+                  <button
+                    type="button"
+                    onClick={() => setRepeatType('none')}
+                    className={`py-1.5 px-2 text-[10px] font-black rounded-lg border text-center transition-all cursor-pointer ${
+                      repeatType === 'none'
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 hover:text-slate-800'
+                    }`}
+                  >
+                    Não Repetir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRepeatType('indefinitely')}
+                    className={`py-1.5 px-2 text-[10px] font-black rounded-lg border text-center transition-all cursor-pointer ${
+                      repeatType === 'indefinitely'
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 hover:text-slate-800'
+                    }`}
+                    title="Repete semanalmente por período indeterminado (~6 meses de salvaguarda)"
+                  >
+                    Indeterminado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRepeatType('defined')}
+                    className={`py-1.5 px-2 text-[10px] font-black rounded-lg border text-center transition-all cursor-pointer ${
+                      repeatType === 'defined'
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 hover:text-slate-800'
+                    }`}
+                  >
+                    Determinado
+                  </button>
+                </div>
+
+                {/* Sub-inputs dependent on selection */}
+                {repeatType === 'indefinitely' && (
+                  <div className="p-2.5 bg-blue-50/50 rounded-lg border border-blue-100 text-[10px] text-blue-900 leading-normal font-medium animate-fade-in">
+                    ℹ️ A escala se repetirá semanalmente pelos próximos **6 meses (24 semanas)** como limite de conformidade operacional.
+                  </div>
+                )}
+
+                {repeatType === 'defined' && (
+                  <div className="p-2.5 bg-white border border-slate-200 rounded-lg space-y-1.5 animate-fade-in">
+                    <label className="block text-[10px] font-bold text-slate-755 text-slate-700 uppercase">
+                      Quantidade de semanas a repetir
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={52}
+                        required={repeatType === 'defined'}
+                        value={repeatWeeks}
+                        onChange={(e) => {
+                          const val = Math.max(1, Math.min(52, parseInt(e.target.value) || 1));
+                          setRepeatWeeks(String(val));
+                        }}
+                        className="w-16 text-xs px-2 py-1 border border-slate-200 rounded focus:ring-2 focus:ring-blue-600 text-slate-800 font-mono font-bold bg-slate-50"
+                      />
+                      <span className="text-xs text-slate-500 font-medium leading-none">
+                        semanas consecutivas (+ {repeatWeeks ? parseInt(repeatWeeks) * 7 : 0} dias)
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 flex justify-end gap-2 text-xs">
