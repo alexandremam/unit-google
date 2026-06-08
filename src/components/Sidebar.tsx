@@ -1,25 +1,32 @@
 import { UserSession } from '../types';
-import { Menu, Clock, CalendarCheck, BarChart3, History, UserPlus } from 'lucide-react';
+import { Menu, Clock, CalendarCheck, BarChart3, History, UserPlus, BarChart2, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
 import UnitaLogo from './UnitaLogo';
 
-type TabType = 'agora' | 'plantao' | 'relatorios' | 'auditoria' | 'plantonistas';
+type TabType = 'agora' | 'plantao' | 'relatorios' | 'plantonistas';
 
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
   session: UserSession;
+  activeSubTab?: 'desempenho' | 'auditoria' | 'uti';
+  setActiveSubTab?: (subTab: 'desempenho' | 'auditoria' | 'uti') => void;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, session }: SidebarProps) {
+export default function Sidebar({ activeTab, setActiveTab, session, activeSubTab, setActiveSubTab }: SidebarProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   const menuItems = [
-    { id: 'agora' as TabType, label: 'Agora', icon: Clock, adminOnly: false },
-    { id: 'plantao' as TabType, label: 'Plantão', icon: CalendarCheck, adminOnly: false },
+    { id: 'agora' as TabType, label: 'Painel Agora', icon: Clock, adminOnly: false },
+    { id: 'plantao' as TabType, label: 'Escala de Plantão', icon: CalendarCheck, adminOnly: false },
     { id: 'relatorios' as TabType, label: 'Relatórios', icon: BarChart3, adminOnly: false },
-    { id: 'auditoria' as TabType, label: 'Auditoria', icon: History, adminOnly: false },
-    { id: 'plantonistas' as TabType, label: 'Cadastrar plantonista', icon: UserPlus, adminOnly: true },
+    { id: 'plantonistas' as TabType, label: 'Credenciamento', icon: UserPlus, adminOnly: true },
+  ];
+
+  const subMenuItems = [
+    { id: 'desempenho' as const, label: 'Desempenho Clínico', icon: BarChart2 },
+    { id: 'auditoria' as const, label: 'Segurança & Auditoria', icon: History },
+    { id: 'uti' as const, label: 'UTI Não Programada', icon: AlertCircle },
   ];
 
   const visibleItems = menuItems.filter(item => !item.adminOnly || session.perfil === 'administrador');
@@ -52,25 +59,67 @@ export default function Sidebar({ activeTab, setActiveTab, session }: SidebarPro
           const isActive = activeTab === item.id;
 
           return (
-            <button
-              id={`sidebar-link-${item.id}`}
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-4 px-3 py-3 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/10'
-                  : 'hover:bg-slate-800 hover:text-white text-slate-400'
-              }`}
-            >
-              <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-              <span
-                className={`transition-opacity duration-200 whitespace-nowrap overflow-hidden ${
-                  isHovered ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'
+            <div key={item.id} className="space-y-1">
+              <button
+                id={`sidebar-link-${item.id}`}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  if (item.id === 'relatorios' && setActiveSubTab) {
+                    setActiveSubTab('desempenho');
+                  }
+                }}
+                className={`w-full flex items-center gap-4 px-3 py-3 rounded-lg text-sm font-semibold transition-all cursor-pointer relative overflow-hidden ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/15'
+                    : 'hover:bg-slate-800/50 hover:text-white text-slate-400 font-sans'
                 }`}
               >
-                {item.label}
-              </span>
-            </button>
+                {isActive && (
+                  <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-white" />
+                )}
+                <Icon className={`h-5 w-5 shrink-0 transition-transform duration-250 group-hover:scale-110 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <span
+                  className={`transition-opacity duration-200 whitespace-nowrap overflow-hidden ${
+                    isHovered ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </button>
+
+              {/* Render submenu for Relatórios only */}
+              {item.id === 'relatorios' && isHovered && (
+                <div 
+                  className={`pl-6 pr-1 space-y-1 overflow-hidden transition-all duration-300 ${
+                    isActive ? 'max-h-40 opacity-100 mt-1 py-1' : 'max-h-0 opacity-0 pointer-events-none'
+                  }`}
+                >
+                  {subMenuItems.map((subItem) => {
+                    const SubIcon = subItem.icon;
+                    const isSubActive = isActive && activeSubTab === subItem.id;
+                    return (
+                      <button
+                        key={subItem.id}
+                        onClick={() => {
+                          setActiveTab('relatorios');
+                          if (setActiveSubTab) {
+                            setActiveSubTab(subItem.id);
+                          }
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-[11px] font-bold tracking-wide uppercase transition-all cursor-pointer ${
+                          isSubActive
+                            ? 'bg-slate-800 text-blue-400 border border-slate-700/50'
+                            : 'hover:bg-slate-850 hover:text-slate-200 text-slate-500'
+                        }`}
+                      >
+                        <SubIcon className={`h-3.5 w-3.5 shrink-0 ${isSubActive ? 'text-blue-400' : 'text-slate-500'}`} />
+                        <span className="truncate">{subItem.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

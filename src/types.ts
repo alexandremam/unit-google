@@ -28,6 +28,7 @@ export interface Escalation {
   setorNome: string;
   salaNome: string;
   atendimento: string; // "número do atendimento"
+  utiNaoProgramada?: boolean; // UTI não programada?
   data: string; // YYYY-MM-DD
   entrada: string; // ISO String or HH:mm, let's store as ISO string for math operations, but editable
   saida?: string; // ISO String when finished

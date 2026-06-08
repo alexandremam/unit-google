@@ -135,3 +135,20 @@ export function logSystemEvent(
   };
   localStorage.setItem('unita_audit', JSON.stringify([newLog, ...logs]));
 }
+
+/**
+ * Formats minutes into whole hours and minutes, e.g. "1h 30min" or "45min".
+ * Fits the requirement of whole hours and minutes with no decimals.
+ */
+export function formatMinutesToHoursAndMins(totalMins: number): string {
+  const h = Math.floor(totalMins / 60);
+  const m = Math.floor(totalMins % 60);
+  if (h === 0) {
+    return `${m}min`;
+  }
+  if (m === 0) {
+    return `${h}h`;
+  }
+  return `${h}h ${m}min`;
+}
+

@@ -12,14 +12,14 @@ import Sidebar from './components/Sidebar';
 import AgoraTab from './components/AgoraTab';
 import PlantaoTab from './components/PlantaoTab';
 import RelatoriosTab from './components/RelatoriosTab';
-import AuditoriaTab from './components/AuditoriaTab';
 import PlantonistaTab from './components/PlantonistaTab';
 
-type TabType = 'agora' | 'plantao' | 'relatorios' | 'auditoria' | 'plantonistas';
+type TabType = 'agora' | 'plantao' | 'relatorios' | 'plantonistas';
 
 export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('agora');
+  const [relatoriosSubTab, setRelatoriosSubTab] = useState<'desempenho' | 'auditoria' | 'uti'>('desempenho');
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [dailyPresences, setDailyPresences] = useState<DailyPresence[]>([]);
@@ -97,7 +97,13 @@ export default function App() {
       {/* 2. Main Workspace layout (Sidebar & content grid) */}
       <div className="flex-1 flex relative">
         {/* Sidebar begins collapsed as hamburger stripe, expands on hover */}
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} session={session} />
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          session={session}
+          activeSubTab={relatoriosSubTab}
+          setActiveSubTab={setRelatoriosSubTab}
+        />
 
         {/* Content panel, shifted 64px (pl-16) to account for collapsed sidebar gutter */}
         <main className="flex-1 min-w-0 pl-16 py-8 px-4 sm:px-6 lg:px-8 transition-all duration-300">
@@ -120,6 +126,7 @@ export default function App() {
                 doctors={doctors}
                 setDoctors={setDoctors}
                 session={session}
+                setSession={setSession}
                 dailyPresences={dailyPresences}
                 setDailyPresences={setDailyPresences}
               />
@@ -130,12 +137,8 @@ export default function App() {
                 doctors={doctors}
                 escalations={escalations}
                 session={session}
-              />
-            )}
-
-            {activeTab === 'auditoria' && (
-              <AuditoriaTab
-                session={session}
+                defaultSubTab={relatoriosSubTab}
+                onChangeSubTab={setRelatoriosSubTab}
               />
             )}
 
@@ -144,6 +147,8 @@ export default function App() {
                 doctors={doctors}
                 setDoctors={setDoctors}
                 session={session}
+                dailyPresences={dailyPresences}
+                setDailyPresences={setDailyPresences}
               />
             )}
 

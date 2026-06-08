@@ -16,14 +16,16 @@ import {
   MapPin,
   Check,
   Search,
-  Timer
+  Timer,
+  AlertCircle
 } from 'lucide-react';
 import {
   getDoctorsStatuses,
   getRoomOccupancy,
   checkOverlap,
   logSystemEvent,
-  formatDurationPure
+  formatDurationPure,
+  formatMinutesToHoursAndMins
 } from '../utils';
 import { HOSPITAL_ROOMS } from '../data';
 
@@ -51,7 +53,7 @@ export default function AgoraTab({
   const [sectorFilter, setSectorFilter] = useState('');
 
   // Modals for click cards
-  const [activeCardModal, setActiveCardModal] = useState<'none' | 'present' | 'available' | 'escalated'>('none');
+  const [activeCardModal, setActiveCardModal] = useState<'none' | 'present' | 'available' | 'escalated' | 'unplanned_icu'>('none');
 
   // Allocation/Escalação state
   const [isEscalateModalOpen, setIsEscalateModalOpen] = useState(false);
@@ -77,6 +79,9 @@ export default function AgoraTab({
   // Real-time room click finalization popup
   const [roomToFinalize, setRoomToFinalize] = useState<Escalation | null>(null);
   const [finalizeExitTime, setFinalizeExitTime] = useState('');
+  const [finalizeAtendimento, setFinalizeAtendimento] = useState('');
+  const [finalizeUtiNaoProgramada, setFinalizeUtiNaoProgramada] = useState(false);
+  const [finalizeError, setFinalizeError] = useState('');
 
   // Pop-up doctor addition states
   const [showAddDoctorForm, setShowAddDoctorForm] = useState(false);
@@ -163,8 +168,14 @@ export default function AgoraTab({
       const HH = String(now.getHours()).padStart(2, '0');
       const MM = String(now.getMinutes()).padStart(2, '0');
       setFinalizeExitTime(`${HH}:${MM}`);
+      setFinalizeAtendimento(roomToFinalize.atendimento || '');
+      setFinalizeUtiNaoProgramada(!!roomToFinalize.utiNaoProgramada);
+      setFinalizeError('');
     } else {
       setFinalizeExitTime('');
+      setFinalizeAtendimento('');
+      setFinalizeUtiNaoProgramada(false);
+      setFinalizeError('');
     }
   }, [roomToFinalize]);
 
@@ -271,7 +282,7 @@ export default function AgoraTab({
   };
 
   // Finalize (Check out) scale manually
-  const handleFinalizeEscalation = (escId: string, customExitTime?: string) => {
+  const handleFinalizeEscalation = (escId: string, customExitTime?: string, atendimentoValue?: string, utiValue?: boolean) => {
     let now = new Date();
 
     if (customExitTime) {
@@ -301,7 +312,9 @@ export default function AgoraTab({
           ...e,
           saida: now.toISOString(),
           horasManual: e.horasManual || cred, // preserve if manual else calculate
-          atosRealizados: 1, // automatic acts counter set to 1 when procedure is completed/finalized!
+          atosRealizados: e.atosRealizados || 1, // automatic acts counter set to 1 when procedure is completed/finalized!
+          atendimento: atendimentoValue !== undefined ? atendimentoValue.trim() : e.atendimento,
+          utiNaoProgramada: utiValue !== undefined ? utiValue : e.utiNaoProgramada,
           ativa: false
         };
       }
@@ -329,7 +342,9 @@ export default function AgoraTab({
       session.usuario,
       session.perfil,
       'Finalização',
-      `Finalizou escala do Dr(a). ${targetEsc.doctorName} no setor ${targetEsc.setorNome} ${targetEsc.salaNome}.`
+      `Finalizou escala do Dr(a). ${targetEsc.doctorName} no setor ${targetEsc.setorNome} ${targetEsc.salaNome}.` +
+      ((atendimentoValue && atendimentoValue.trim()) ? ` Atendimento: ${atendimentoValue.trim()}.` : '') +
+      (utiValue ? ' [UTI não programada]' : '')
     );
   };
 
@@ -462,7 +477,7 @@ export default function AgoraTab({
       nome: newDocNome.trim(),
       crm: existingCrmComp,
       celular: newDocCelular.trim(),
-      afinidade: newDocAfinidade.trim() || 'Anestesiologia Geral',
+      afinidade: '',
       presente: true,
       disponivelDesde: new Date().toISOString()
     };
@@ -512,6 +527,11 @@ export default function AgoraTab({
       return;
     }
 
+    if (editingEscalation.utiNaoProgramada && !editingEscalation.atendimento.trim()) {
+      alert('O número de atendimento é obrigatório quando a opção "UTI não programada?" está marcada.');
+      return;
+    }
+
     if (editingEscalation.atendimento.trim() !== '' && !/^\d{8}$/.test(editingEscalation.atendimento.trim())) {
       alert('O número de atendimento deve ser composto por exatamente 8 dígitos numéricos.');
       return;
@@ -523,6 +543,7 @@ export default function AgoraTab({
         return {
           ...esc,
           atendimento: editingEscalation.atendimento,
+          utiNaoProgramada: editingEscalation.utiNaoProgramada,
           horasManual: editRequestHours ? parseFloat(editRequestHours) : undefined,
           atosRealizados: editingEscalation.atosRealizados,
           justificativaEdicao: editJustification
@@ -687,11 +708,15 @@ export default function AgoraTab({
   const availablePercentageStr = `${present.length ? Math.round((available.length / present.length) * 100) : 0}%`;
   const escalatedPercentageStr = `${present.length ? Math.round((escalated.length / present.length) * 100) : 0}%`;
 
+  const todayString = new Date().toISOString().split('T')[0];
+  const todayUnplannedIcuEscalations = escalations.filter(e => e.utiNaoProgramada && e.data === todayString);
+  const totalTodayEscalationsCount = escalations.filter(e => e.data === todayString).length || 1;
+
   return (
     <div className="space-y-8 pb-16">
       
       {/* 1. SMALL CLICKABLE RESUME CARDS WITH BEAUTIFUL CIRCULAR CHARTS */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="resume-cards-section">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" id="resume-cards-section">
         {/* Realtime Hour Hand (Typographic Widget with analog micro elements - No graph) */}
         <div className="bg-slate-950 rounded-xl p-4 flex items-center gap-4 border border-slate-800 shadow-md text-white">
           <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 text-blue-400 shadow-inner">
@@ -800,6 +825,31 @@ export default function AgoraTab({
             </p>
           </div>
         </div>
+
+        {/* Unplanned ICU Card */}
+        <div
+          id="card-unplanned-icu"
+          onClick={() => setActiveCardModal('unplanned_icu')}
+          className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 flex items-center gap-4 cursor-pointer hover:bg-rose-50/50 hover:border-rose-200 hover:shadow-sm transition-all group"
+        >
+          {renderDonut(
+            todayUnplannedIcuEscalations.length,
+            totalTodayEscalationsCount,
+            'stroke-rose-600',
+            'stroke-rose-100',
+            String(todayUnplannedIcuEscalations.length),
+            <AlertCircle className="h-2.5 w-2.5 text-rose-600" />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] text-rose-500 font-extrabold uppercase tracking-widest leading-none">UTI s/ Progr.</p>
+            <h3 className="text-xl font-black text-slate-800 leading-tight mt-1 font-display">
+              {todayUnplannedIcuEscalations.length} <span className="text-xs font-bold text-slate-400 font-sans">reg.</span>
+            </h3>
+            <p className="text-[9px] text-rose-700 font-semibold font-sans mt-0.5 truncate bg-rose-50 rounded px-1.5 py-0.5 border border-rose-100 w-fit">
+              hoje
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* 2. REALTIME OCCUPATION DISPLAY & LIST */}
@@ -876,8 +926,8 @@ export default function AgoraTab({
                               <span className="text-blue-900 font-bold truncate text-right block text-[11px]" title={activeEsc.doctorName}>
                                 {activeEsc.doctorName}
                               </span>
-                              <span className="bg-blue-200/60 text-blue-950 font-extrabold px-1.5 py-0.2 rounded font-mono text-[9px] select-none shrink-0" title="Tempo de Permanência em minutos">
-                                {formatDurationPure(activeEsc.entrada)}m
+                              <span className="bg-blue-200/60 text-blue-950 font-extrabold px-1.5 py-0.2 rounded font-mono text-[9px] select-none shrink-0" title="Tempo de Permanência">
+                                {formatMinutesToHoursAndMins(parseInt(formatDurationPure(activeEsc.entrada)))}
                               </span>
                             </div>
                           ) : (
@@ -987,7 +1037,7 @@ export default function AgoraTab({
                           >
                             <span className="truncate">{esc.salaNome}</span>
                             <span className="text-[8px] font-mono opacity-80 shrink-0">
-                              {formatDurationPure(esc.entrada, esc.saida)}
+                              {formatMinutesToHoursAndMins(parseInt(formatDurationPure(esc.entrada, esc.saida)))}
                             </span>
                           </div>
                         );
@@ -1057,7 +1107,7 @@ export default function AgoraTab({
                     const isAvailable = !activeEsc;
                     const waitMins = isAvailable ? formatDurationPure(d.disponivelDesde) : '0';
                     const labelSuffix = isAvailable 
-                      ? `(Disponível - ${waitMins} min ocioso)` 
+                      ? `(Disponível - ${formatMinutesToHoursAndMins(parseInt(waitMins))} ocioso)` 
                       : `(🚫 Escalado na ${activeEsc.salaNome})`;
                     return (
                       <option key={d.id} value={d.id}>
@@ -1088,31 +1138,16 @@ export default function AgoraTab({
               </div>
 
               {/* Timing parameters */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase">Horário Entrada</label>
-                  <input
-                    id="form-input-entry-time"
-                    type="time"
-                    required
-                    value={entryTime}
-                    onChange={(e) => setEntryTime(e.target.value)}
-                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-600 text-slate-800 bg-slate-50 animate-fade-in"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase">
-                    Horário Saída <span className="text-slate-400 text-[10px] font-normal">(Fim)</span>
-                  </label>
-                  <input
-                    id="form-input-exit-time"
-                    type="time"
-                    value={exitTime}
-                    onChange={(e) => setExitTime(e.target.value)}
-                    placeholder="Contínuo"
-                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-600 text-slate-800 bg-slate-50"
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700 uppercase">Horário Entrada</label>
+                <input
+                  id="form-input-entry-time"
+                  type="time"
+                  required
+                  value={entryTime}
+                  onChange={(e) => setEntryTime(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-600 text-slate-800 bg-slate-50 animate-fade-in font-mono"
+                />
               </div>
 
               <div className="pt-2 flex justify-end gap-2 text-xs">
@@ -1147,6 +1182,7 @@ export default function AgoraTab({
                 <p className="text-[11px] text-slate-400">Procedimento de {editingEscalation.doctorName}</p>
               </div>
               <button
+                type="button"
                 onClick={() => setEditingEscalation(null)}
                 className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-all cursor-pointer"
               >
@@ -1168,6 +1204,22 @@ export default function AgoraTab({
                     setEditingEscalation({ ...editingEscalation, atendimento: onlyNums });
                   }}
                 />
+              </div>
+
+              {/* Unplanned ICU for Edit Modal */}
+              <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="edit-unplanned-icu"
+                  checked={!!editingEscalation.utiNaoProgramada}
+                  onChange={(e) => {
+                    setEditingEscalation({ ...editingEscalation, utiNaoProgramada: e.target.checked });
+                  }}
+                  className="h-4 w-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                />
+                <label htmlFor="edit-unplanned-icu" className="text-xs font-bold text-slate-700" style={{ cursor: 'pointer', userSelect: 'none' }}>
+                  UTI não programada?
+                </label>
               </div>
 
               <div className="space-y-1">
@@ -1298,7 +1350,7 @@ export default function AgoraTab({
             {/* Header */}
             <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
               <div>
-                <h3 className="text-sm font-bold font-display">Desocupar Sala & Liberar Plantonista</h3>
+                <h3 className="text-sm font-bold font-display">Finalizar procedimento</h3>
                 <p className="text-[11px] text-slate-400">Finalizar o tempo de permanência no posto</p>
               </div>
               <button
@@ -1328,23 +1380,65 @@ export default function AgoraTab({
                   </div>
                   <div>
                     <span className="text-slate-500 font-normal">Permanência atual:</span>
-                    <p className="font-mono text-rose-600 font-bold">{formatDurationPure(roomToFinalize.entrada)} minutos</p>
+                    <p className="font-mono text-rose-600 font-bold">{formatMinutesToHoursAndMins(parseInt(formatDurationPure(roomToFinalize.entrada)))}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-1.5 bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs">
-                <label className="block font-bold text-slate-700 uppercase tracking-wide">
-                  Horário de Saída (Fim):
-                </label>
-                <input
-                  type="time"
-                  required
-                  value={finalizeExitTime}
-                  onChange={(e) => setFinalizeExitTime(e.target.value)}
-                  className="w-full text-xs px-3 py-2 border border-slate-250 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-600 text-slate-800 bg-white font-mono"
-                />
+              <div className="space-y-3 bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase tracking-wide mb-1">
+                    Horário de Saída (Fim):
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={finalizeExitTime}
+                    onChange={(e) => setFinalizeExitTime(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-slate-250 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-600 text-slate-800 bg-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase tracking-wide mb-1">
+                    Nº Atendimento (8 dígitos):
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={8}
+                    placeholder="Ex: 12345678"
+                    value={finalizeAtendimento}
+                    onChange={(e) => {
+                      const onlyNums = e.target.value.replace(/\D/g, '');
+                      setFinalizeAtendimento(onlyNums);
+                      setFinalizeError('');
+                    }}
+                    className="w-full text-xs px-3 py-2 border border-slate-250 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-600 text-slate-800 bg-white font-mono"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="finalize-unplanned-icu"
+                    checked={finalizeUtiNaoProgramada}
+                    onChange={(e) => {
+                      setFinalizeUtiNaoProgramada(e.target.checked);
+                      setFinalizeError('');
+                    }}
+                    className="h-4 w-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer animate-fade-in"
+                  />
+                  <label htmlFor="finalize-unplanned-icu" className="font-bold text-slate-700 uppercase cursor-pointer select-none">
+                    UTI não programada?
+                  </label>
+                </div>
               </div>
+
+              {finalizeError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-850 rounded-lg p-3 text-xs font-semibold animate-fade-in">
+                  ⚠️ {finalizeError}
+                </div>
+              )}
 
               <p className="text-xs text-slate-600 leading-relaxed">
                 Ao clicar em confirmar, a ocupação desta sala será finalizada com o horário de saída selecionado acima, e o anestesista retornará automaticamente para a lista de <strong>médicos disponíveis</strong>.
@@ -1361,12 +1455,21 @@ export default function AgoraTab({
                 <button
                   type="button"
                   onClick={() => {
-                    handleFinalizeEscalation(roomToFinalize.id, finalizeExitTime);
+                    const amtClean = finalizeAtendimento.trim();
+                    if (finalizeUtiNaoProgramada && !amtClean) {
+                      setFinalizeError('O número de atendimento é obrigatório para casos de UTI não programada.');
+                      return;
+                    }
+                    if (amtClean !== '' && !/^\d{8}$/.test(amtClean)) {
+                      setFinalizeError('O número de atendimento médico deve conter exatamente 8 dígitos numéricos.');
+                      return;
+                    }
+                    handleFinalizeEscalation(roomToFinalize.id, finalizeExitTime, amtClean, finalizeUtiNaoProgramada);
                     setRoomToFinalize(null);
                   }}
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1"
                 >
-                  <Check className="h-4 w-4" /> Confirmar e Liberar
+                  <Check className="h-4 w-4" /> Finalizar
                 </button>
               </div>
             </div>
@@ -1385,6 +1488,7 @@ export default function AgoraTab({
                   {activeCardModal === 'present' && 'Detalhamento de Presentes no Plantão'}
                   {activeCardModal === 'available' && 'Detalhamento de Médicos Disponíveis'}
                   {activeCardModal === 'escalated' && 'Detalhamento de Ativos Escalados'}
+                  {activeCardModal === 'unplanned_icu' && 'Detalhamento de UTIs Não Programadas (Hoje)'}
                 </h3>
                 <p className="text-[11px] text-slate-400">MVP Controle de Médicos Anestesistas</p>
               </div>
@@ -1398,6 +1502,31 @@ export default function AgoraTab({
 
             {/* Content Lists */}
             <div className="p-6 max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+              {activeCardModal === 'unplanned_icu' && (
+                todayUnplannedIcuEscalations.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-4 italic text-center">Nenhuma UTI não programada registrada hoje.</p>
+                ) : (
+                  todayUnplannedIcuEscalations.map(esc => (
+                    <div key={esc.id} className="py-3 flex justify-between items-center">
+                      <div>
+                        <div className="text-xs font-bold text-slate-800">{esc.doctorName}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 font-mono">
+                          Setor: {esc.setorNome} - {esc.salaNome}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                          Atendimento: <strong className="text-rose-600">#{esc.atendimento}</strong>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] bg-rose-100 text-rose-900 font-bold px-1.5 py-0.5 rounded font-mono uppercase">
+                          Saída: {esc.saida ? new Date(esc.saida).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Ativo'}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+
               {activeCardModal === 'present' && (
                 <div className="space-y-4 pt-1">
                   
@@ -1462,7 +1591,7 @@ export default function AgoraTab({
                             )}
                           </div>
                           <div className={`text-[10px] font-mono mt-0.5 ${isIdle60 ? "text-amber-800 font-medium" : "text-slate-550 text-slate-500"}`}>
-                            CRM {doc.crm} • Aguardando há <strong className={isIdle60 ? "font-extrabold text-amber-900" : ""}>{doc.durationText} minutos</strong>
+                            CRM {doc.crm} • Aguardando há <strong className={isIdle60 ? "font-extrabold text-amber-900" : ""}>{formatMinutesToHoursAndMins(parseInt(doc.durationText || '0'))}</strong>
                           </div>
                         </div>
                         <span className={`text-[10px] px-2.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider ${
@@ -1485,7 +1614,7 @@ export default function AgoraTab({
                       <div className="flex justify-between">
                         <span className="text-xs font-bold text-slate-800">{doc.nome}</span>
                         <span className="text-[10px] bg-blue-100 text-blue-900 font-bold px-1.5 rounded font-mono">
-                          {doc.durationText}
+                          {formatMinutesToHoursAndMins(parseInt(doc.durationText || '0'))}
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-500 mt-1 font-mono">

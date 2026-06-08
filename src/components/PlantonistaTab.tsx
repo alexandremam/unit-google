@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Doctor, UserSession } from '../types';
-import { UserPlus, ToggleLeft, ToggleRight, Trash2, Mail, ShieldAlert, BadgeCheck, Phone, FileText, X } from 'lucide-react';
+import { Doctor, UserSession, DailyPresence } from '../types';
+import { UserPlus, ToggleLeft, ToggleRight, Trash2, Mail, ShieldAlert, BadgeCheck, Phone, FileText, X, Sparkles, Check } from 'lucide-react';
 import { logSystemEvent } from '../utils';
 import UnitaLogo from './UnitaLogo';
 
@@ -8,13 +8,21 @@ interface PlantonistaTabProps {
   doctors: Doctor[];
   setDoctors: React.Dispatch<React.SetStateAction<Doctor[]>>;
   session: UserSession;
+  dailyPresences: DailyPresence[];
+  setDailyPresences: React.Dispatch<React.SetStateAction<DailyPresence[]>>;
 }
 
-export default function PlantonistaTab({ doctors, setDoctors, session }: PlantonistaTabProps) {
+export default function PlantonistaTab({
+  doctors,
+  setDoctors,
+  session,
+  dailyPresences,
+  setDailyPresences
+}: PlantonistaTabProps) {
   const [nome, setNome] = useState('');
   const [crm, setCrm] = useState('');
   const [celular, setCelular] = useState('');
-  const [afinidade, setAfinidade] = useState('');
+  const [autoScale, setAutoScale] = useState(true);
   const [isAdminGrant, setIsAdminGrant] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSuccessMsg, setInviteSuccessMsg] = useState('');
@@ -51,8 +59,8 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
       nome: nome.trim(),
       crm: crm.trim().toUpperCase(),
       celular: celular.trim(),
-      afinidade: afinidade.trim() || 'Anestesiologia Geral',
-      presente: true, // immediately available for simulation
+      afinidade: '', // Removido afinidade conforme solicitação
+      presente: autoScale, // immediately present if autoScale is active
       disponivelDesde: new Date().toISOString()
     };
 
@@ -60,12 +68,38 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
     setDoctors(updatedDoctors);
     localStorage.setItem('unita_doctors', JSON.stringify(updatedDoctors));
 
+    // Automatically list / schedule on Plantão for Today and Tomorrow if autoScale is active
+    if (autoScale && setDailyPresences && dailyPresences) {
+      const todayStr = new Date().toLocaleDateString('en-CA');
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toLocaleDateString('en-CA');
+
+      const p1: DailyPresence = {
+        id: `pres-${uniqueId}-${todayStr}`,
+        date: todayStr,
+        doctorID: uniqueId,
+        shiftType: '12h'
+      };
+
+      const p2: DailyPresence = {
+        id: `pres-${uniqueId}-${tomorrowStr}`,
+        date: tomorrowStr,
+        doctorID: uniqueId,
+        shiftType: '12h'
+      };
+
+      const updatedPres = [...dailyPresences, p1, p2];
+      setDailyPresences(updatedPres);
+      localStorage.setItem('unita_daily_presences', JSON.stringify(updatedPres));
+    }
+
     // Audit action
     logSystemEvent(
       session.usuario,
       session.perfil,
       'Cadastro de plantonista',
-      `Cadastrou plantonista ${newDoc.nome} (${newDoc.crm}). Disponibilizado de imediato.`
+      `Cadastrou plantonista ${newDoc.nome} (${newDoc.crm}). ${autoScale ? 'Auto-escalado nos plantões (Hoje e Amanhã).' : 'Disponibilizado de imediato.'}`
     );
 
     // Simulate Admin invite email status response
@@ -77,7 +111,6 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
     setNome('');
     setCrm('');
     setCelular('');
-    setAfinidade('');
     setIsAdminGrant(false);
     setInviteEmail('');
   };
@@ -116,12 +149,12 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
   return (
     <div className="space-y-8" id="plantonistas-tab-container">
       {/* Title */}
-      <div className="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200">
+      <div className="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
         <UnitaLogo size={36} className="p-1 rounded-lg bg-slate-50 border border-slate-100 shadow-3xs" />
         <div>
-          <h2 className="text-xl font-bold text-slate-800 font-display">Controle de Médicos Plantonistas</h2>
+          <h2 className="text-xl font-bold text-slate-800 font-display">Novo Cadastro</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Painel confidencial de credenciamento e remoção de anestesiologistas
+            Painel confidencial para inclusão de novos anestesiologistas na base geral e escala de plantão
           </p>
         </div>
       </div>
@@ -129,9 +162,9 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* Form panel (5 cols) */}
-        <section className="bg-white rounded-xl border border-slate-200 p-6 md:col-span-5 self-start">
+        <section className="bg-white rounded-xl border border-slate-200 p-6 md:col-span-5 self-start shadow-3xs">
           <h3 className="text-sm font-bold text-slate-800 font-display mb-4 flex items-center gap-2">
-            <UserPlus className="h-4 w-4 text-slate-400" /> Cadastrar Novo Médico
+            <UserPlus className="h-4 w-4 text-slate-400" /> Formulário de Novo Cadastro
           </h3>
 
           <form onSubmit={handleRegister} className="space-y-4">
@@ -175,16 +208,27 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-slate-700 uppercase">Afinidade Anestésica / Habilidade</label>
-              <input
-                id="doc-affinity-input"
-                type="text"
-                className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg text-slate-800 bg-slate-50 focus:ring-1 focus:ring-blue-600"
-                value={afinidade}
-                onChange={(e) => setAfinidade(e.target.value)}
-                placeholder="Ex: Via Aérea Difícil ou Geral"
-              />
+            {/* Auto-scaler mechanism option */}
+            <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 flex flex-col gap-1.5 shadow-3xs">
+              <button
+                type="button"
+                id="doc-autoscale-toggle"
+                onClick={() => setAutoScale(!autoScale)}
+                className="flex items-center justify-between text-xs font-extrabold text-blue-900 cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-blue-600 animate-pulse" />
+                  Auto-escalar nos Plantões
+                </span>
+                {autoScale ? (
+                  <ToggleRight className="h-6 w-6 text-blue-600" />
+                ) : (
+                  <ToggleLeft className="h-6 w-6 text-slate-400" />
+                )}
+              </button>
+              <p className="text-[10px] text-blue-800 font-medium leading-relaxed">
+                Ao marcar esta opção, o médico constará no banco de dados geral e será adicionado <strong>automaticamente</strong> para escalabilidade direta nos plantões (Hoje e Amanhã).
+              </p>
             </div>
 
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex flex-col gap-2">
@@ -234,15 +278,15 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
               type="submit"
               className="w-full inline-flex justify-center items-center py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
             >
-              Cadastrar e Disponibilizar
+              Criar Novo Cadastro
             </button>
           </form>
         </section>
 
         {/* List panel (7 cols) */}
-        <section className="bg-white rounded-xl border border-slate-200 p-6 md:col-span-7 flex flex-col h-full justify-between">
+        <section className="bg-white rounded-xl border border-slate-200 p-6 md:col-span-7 flex flex-col h-full justify-between shadow-3xs">
           <div>
-            <h3 className="text-sm font-bold text-slate-800 font-display mb-4">Anestesiologistas Registrados ({doctors.length})</h3>
+            <h3 className="text-sm font-bold text-slate-800 font-display mb-4">Anestesiologistas Credenciados ({doctors.length})</h3>
 
             <div className="space-y-2.5 max-h-[450px] overflow-y-auto pr-1">
               {doctors.map(doc => (
@@ -259,8 +303,6 @@ export default function PlantonistaTab({ doctors, setDoctors, session }: Planton
                     
                     <div className="text-[10px] text-slate-500 font-mono flex items-center gap-3">
                       <span>{doc.crm}</span>
-                      <span>•</span>
-                      <span className="text-slate-400 font-sans italic">{doc.afinidade}</span>
                     </div>
 
                     <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
