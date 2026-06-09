@@ -149,28 +149,13 @@ export default function AgoraTab({
         return { ...doc, presente: false };
       }
 
-      const shift = presence.shiftType;
-      let isWithinShift = false;
-      const shifts = shift ? shift.split(',') : ['12h'];
-
-      for (const s of shifts) {
-        if (s === '6h-manha' || s === '6h-manhã') {
-          if (currentHour >= 7 && currentHour < 13) isWithinShift = true;
-        } else if (s === '6h-tarde') {
-          if (currentHour >= 13 && currentHour < 19) isWithinShift = true;
-        } else if (s === 'extendido') {
-          if (currentHour >= 19 && currentHour < 24) isWithinShift = true;
-        } else if (s === '12h') {
-          if (currentHour >= 7 && currentHour < 19) isWithinShift = true;
-        }
-      }
-
+      // If they are in today's scale, they are automatically active & available to be assigned on the current day
       return {
         ...doc,
-        presente: isWithinShift
+        presente: true
       };
     });
-  }, [doctors, dailyPresences, tick]);
+  }, [doctors, dailyPresences]);
 
   // Compute stats
   const { present, available, escalated } = useMemo(() => {
@@ -890,17 +875,17 @@ export default function AgoraTab({
             <h3 className="text-xl font-black text-slate-800 leading-tight mt-1 font-display">
               {todayUnplannedIcuEscalations.length} <span className="text-xs font-bold text-slate-400 font-sans">reg.</span>
             </h3>
-            <p className="text-[9px] text-rose-700 font-semibold font-sans mt-0.5 truncate bg-rose-50 rounded px-1.5 py-0.5 border border-rose-100 w-fit">
+            <p className="text-[9px] text-rose-700 font-semibold font-sans mt-0.5 truncate bg-rose-50 rounded px-1.5 py-0.5 border border-rose-100/30 w-fit">
               hoje
             </p>
           </div>
         </div>
       </section>
 
-      {/* 2. REALTIME OCCUPATION & PRESENT DOCTORS LINKAGE PANEL */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 no-print" id="real-time-display-section">
-        {/* LEFT COLUMN: Realtime Occupation (2/3 width) */}
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col justify-between">
+       {/* 2. REALTIME OCCUPATION & PRESENT DOCTORS LINKAGE PANEL */}
+      <section className="grid grid-cols-1 gap-6 no-print" id="real-time-display-section">
+        {/* Full Width Occupation Display */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col justify-between">
           <div>
             <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
@@ -930,7 +915,7 @@ export default function AgoraTab({
             </div>
 
             {/* Grid display grouped by sector exactly as requested */}
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {sectorGroups.map(grp => {
                 // Find rooms belonging to this sector
                 const roomsInGrp = filteredRooms.filter(r => r.setor === grp.key);
@@ -978,6 +963,7 @@ export default function AgoraTab({
                                 </div>
                               ) : (
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     openNewEscalation('', room.id);
@@ -997,93 +983,6 @@ export default function AgoraTab({
                 );
               })}
             </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Present Doctors & Active Rooms (1/3 width) */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col">
-          <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-4">
-            <h3 className="text-sm font-bold text-slate-800 font-display flex items-center gap-2">
-              <Users className="h-4.5 w-4.5 text-blue-600" />
-              Médicos Presentes & Salas Ativas
-            </h3>
-            <p className="text-[11px] text-slate-505 mt-0.5 font-sans">Acompanhamento e vinculação em tempo real</p>
-          </div>
-
-          <div className="p-4 flex-1 overflow-y-auto max-h-[500px] space-y-2.5">
-            {present.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 italic text-xs">
-                Nenhum médico presente no plantão de hoje.
-              </div>
-            ) : (
-              present.map(doc => {
-                const activeEscs = escalations.filter(e => e.ativa && e.doctorID === doc.id);
-                const hasActive = activeEscs.length > 0;
-
-                return (
-                  <div 
-                    key={doc.id}
-                    className={`p-3 rounded-xl border transition-all ${
-                      hasActive
-                        ? 'bg-blue-50/30 border-blue-100 text-blue-950'
-                        : 'bg-emerald-50/20 border-emerald-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-extrabold text-xs text-slate-850 truncate" title={doc.nome}>
-                          {doc.nome}
-                        </p>
-                        <p className="text-[9.5px] font-mono text-slate-400 mt-0.5">
-                          CRM {doc.crm} • {doc.celular}
-                        </p>
-                      </div>
-
-                      <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider shrink-0 ${
-                        hasActive
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-emerald-600 text-white'
-                      }`}>
-                        {hasActive ? 'Ativo' : 'Livre'}
-                      </span>
-                    </div>
-
-                    <div className="mt-2.5 pt-2 border-t border-slate-100">
-                      {hasActive ? (
-                        <div className="space-y-1.5">
-                          <p className="text-[9px] uppercase font-black tracking-widest text-blue-800">Salas Vinculadas:</p>
-                          {activeEscs.map(esc => (
-                            <div 
-                              key={esc.id} 
-                              onClick={() => setRoomToFinalize(esc)}
-                              className="flex items-center justify-between p-1.5 px-2 bg-white rounded-lg border border-blue-200 shadow-3xs cursor-pointer hover:bg-blue-50 hover:border-blue-305 transition-colors text-[10.5px]"
-                              title="Clique para desocupar"
-                            >
-                              <span className="font-mono font-bold text-blue-950 truncate max-w-[100px]">{esc.salaNome}</span>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <span className="bg-slate-100 text-slate-500 px-1 py-0.2 rounded font-mono text-[8px] uppercase font-black">
-                                  {esc.setorNome}
-                                </span>
-                                <span className="bg-blue-105 text-blue-800 font-extrabold px-1 py-0.2 rounded font-mono text-[9px]">
-                                  {formatMinutesToHoursAndMins(parseInt(formatDurationPure(esc.entrada)))}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between text-[10.5px]">
-                          <span className="text-emerald-700 font-semibold">Postado no centro cirúrgico há:</span>
-                          <span className="font-mono font-extrabold text-emerald-800">
-                            {formatMinutesToHoursAndMins(parseInt(formatDurationPure(doc.disponivelDesde)))}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
           </div>
         </div>
       </section>

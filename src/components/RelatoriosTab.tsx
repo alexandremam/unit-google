@@ -48,6 +48,7 @@ interface DoctorRate {
   horasTrabalhadas: number;
   atosRealizados: number;
   tempoDisponivelMin: number; // minutes
+  cirurgiasConcluidas: number;
 }
 
 export default function RelatoriosTab({ doctors, escalations, session, defaultSubTab = 'desempenho', onChangeSubTab }: RelatoriosTabProps) {
@@ -126,7 +127,8 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
         crm: doc.crm,
         horasTrabalhadas: 0,
         atosRealizados: 0,
-        tempoDisponivelMin: 0
+        tempoDisponivelMin: 0,
+        cirurgiasConcluidas: 0
       };
 
       // Realtime wait duration calculation 
@@ -152,6 +154,9 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
 
       report[esc.doctorID].horasTrabalhadas += durationHours;
       report[esc.doctorID].atosRealizados += esc.atosRealizados;
+      if (!esc.ativa) {
+        report[esc.doctorID].cirurgiasConcluidas += 1;
+      }
     });
 
     // Build lists and perform flexible table sort conversions
@@ -170,10 +175,10 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
       } else if (docSortField === 'hours') {
         comparison = a.horasTrabalhadas - b.horasTrabalhadas;
       } else if (docSortField === 'acts') {
-        comparison = a.atosRealizados - b.atosRealizados;
+        comparison = a.cirurgiasConcluidas - b.cirurgiasConcluidas;
       } else {
-        const effA = a.horasTrabalhadas > 0 ? a.atosRealizados / a.horasTrabalhadas : 0;
-        const effB = b.horasTrabalhadas > 0 ? b.atosRealizados / b.horasTrabalhadas : 0;
+        const effA = a.horasTrabalhadas > 0 ? a.cirurgiasConcluidas / a.horasTrabalhadas : 0;
+        const effB = b.horasTrabalhadas > 0 ? b.cirurgiasConcluidas / b.horasTrabalhadas : 0;
         comparison = effA - effB;
       }
       return docSortAsc ? comparison : -comparison;
@@ -188,6 +193,10 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
   // Compute stats card HUD values
   const totalWorkedHours = useMemo(() => {
     return aggregatedReport.reduce((acc, curr) => acc + curr.horasTrabalhadas, 0);
+  }, [aggregatedReport]);
+
+  const totalCirurgiasConcluidas = useMemo(() => {
+    return aggregatedReport.reduce((acc, curr) => acc + curr.cirurgiasConcluidas, 0);
   }, [aggregatedReport]);
 
   const totalActs = useMemo(() => {
@@ -455,7 +464,7 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
           </div>
 
           {/* QUICK STATS HUB ROW - Maintained exclusively on performance page */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 no-print" id="anesthesiology-kpi-grid">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 no-print" id="anesthesiology-kpi-grid">
             {/* 1. Scale Hours Logged */}
             <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-3xs flex items-start gap-3.5 hover:border-slate-300 transition-all">
               <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-100 text-blue-600 shrink-0">
@@ -466,39 +475,25 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
                 <span className="text-lg font-black text-slate-850 font-mono tracking-tight leading-none block">
                   {formatHourString(totalWorkedHours)}
                 </span>
-                <span className="block text-[9px] text-slate-450 leading-tight">Escala faturada em regime de urgência</span>
+                <span className="block text-[9px] text-slate-450 leading-tight">Total de horas em tempo real no plantão</span>
               </div>
             </div>
 
-            {/* 2. Total Anesthesia Procedures */}
+            {/* 2. Total Anesthesia Procedures (Renamed to Cirurgias do Dia) */}
             <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-3xs flex items-start gap-3.5 hover:border-slate-300 transition-all">
               <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-110 text-emerald-600 shrink-0">
                 <Activity className="h-5 w-5" />
               </div>
               <div className="space-y-1 overflow-hidden">
-                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Atos Efetuados</span>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Cirurgias do Dia</span>
                 <span className="text-lg font-black text-slate-850 font-mono tracking-tight leading-none block">
-                  {totalActs} <span className="text-[10px] font-bold text-slate-405 font-sans">procedimentos</span>
+                  {totalCirurgiasConcluidas} <span className="text-[10px] font-bold text-slate-405 font-sans">finalizadas</span>
                 </span>
-                <span className="block text-[9px] text-slate-450 leading-tight">Intervenções clínicas concluídas</span>
+                <span className="block text-[9px] text-slate-450 leading-tight">Somatório de cirurgias em tempo real</span>
               </div>
             </div>
 
-            {/* 3. Average load per active doctor */}
-            <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-3xs flex items-start gap-3.5 hover:border-slate-300 transition-all">
-              <div className="p-3 rounded-xl bg-indigo-50/80 border border-indigo-100 text-indigo-600 shrink-0">
-                <BarChart2 className="h-5 w-5" />
-              </div>
-              <div className="space-y-1 overflow-hidden">
-                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Atos por Anestesista</span>
-                <span className="text-lg font-black text-slate-850 font-mono tracking-tight leading-none block text-indigo-700">
-                  {averageActsPerActiveDoc}
-                </span>
-                <span className="block text-[9px] text-slate-450 leading-tight">Concentração média de carga de trabalho</span>
-              </div>
-            </div>
-
-            {/* 4. Standby / Readiness hours reservation */}
+            {/* 3. Standby / Readiness hours reservation */}
             <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-3xs flex items-start gap-3.5 hover:border-slate-300 transition-all">
               <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-100/80 text-amber-600 shrink-0">
                 <Hourglass className="h-5 w-5" />
@@ -512,7 +507,7 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
               </div>
             </div>
 
-            {/* 5. Team Activation Rate */}
+            {/* 4. Team Activation Rate */}
             <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-3xs flex items-start gap-3.5 hover:border-slate-300 transition-all">
               <div className="p-3 rounded-xl bg-slate-100/85 border border-slate-200 text-slate-650 shrink-0">
                 <UserCheck className="h-5 w-5" />
@@ -718,8 +713,8 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
                               style={{ width: `${Math.max(2, percentage)}%` }}
                             />
                           </div>
-                          <span className="text-[10px] text-slate-450 font-mono font-extrabold pb-0.5">
-                            {rate.atosRealizados} atos
+                          <span className="text-[10px] text-slate-455 font-mono font-extrabold pb-0.5">
+                            {rate.cirurgiasConcluidas} cirurgias
                           </span>
                         </div>
                       </div>
@@ -754,12 +749,12 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
                   </div>
 
                   <div className="p-3 bg-white border border-slate-150 rounded-lg shadow-3xs">
-                    <span className="block text-[9px] text-slate-400 font-extrabold uppercase">Maior Volume de Atos</span>
+                    <span className="block text-[9px] text-slate-400 font-extrabold uppercase">Maior Volume de Cirurgias</span>
                     <span className="text-slate-800 font-black block mt-1">
-                      {[...aggregatedReport].sort((a,b) => b.atosRealizados - a.atosRealizados)[0]?.nome || 'Nenhum'}
+                      {[...aggregatedReport].sort((a,b) => b.cirurgiasConcluidas - a.cirurgiasConcluidas)[0]?.nome || 'Nenhum'}
                     </span>
                     <span className="text-[9px] text-slate-400 font-mono font-bold block">
-                      {[...aggregatedReport].sort((a,b) => b.atosRealizados - a.atosRealizados)[0]?.atosRealizados || 0} anestesias realizadas
+                      {[...aggregatedReport].sort((a,b) => b.cirurgiasConcluidas - a.cirurgiasConcluidas)[0]?.cirurgiasConcluidas || 0} cirurgias finalizadas
                     </span>
                   </div>
                 </div>
@@ -801,13 +796,13 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
                     </th>
                     <th className="py-3 px-4 text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSortToggle('acts')}>
                       <div className="flex items-center justify-center gap-1.5">
-                        Atos Clínicos <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                        Cirurgias Concluídas <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
                     <th className="py-3 px-4 text-center">Tempo Disponível</th>
                     <th className="py-3 px-6 text-right cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSortToggle('efficiency')}>
                       <div className="flex items-center justify-end gap-1.5">
-                        Eficiência Atos/H <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                        Eficiência Cirurgias/H <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
                   </tr>
@@ -822,7 +817,7 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
                   ) : (
                     aggregatedReport.map((rate, idx) => {
                       const efficiency = rate.horasTrabalhadas > 0
-                        ? (rate.atosRealizados / rate.horasTrabalhadas).toFixed(2).replace('.', ',')
+                        ? (rate.cirurgiasConcluidas / rate.horasTrabalhadas).toFixed(2).replace('.', ',')
                         : '0,00';
                       return (
                         <tr key={rate.id} className="hover:bg-slate-50/70 transition-colors">
@@ -837,7 +832,7 @@ export default function RelatoriosTab({ doctors, escalations, session, defaultSu
                             {formatHourString(rate.horasTrabalhadas)}
                           </td>
                           <td className="py-3 px-4 text-center font-mono font-bold text-slate-800">
-                            {rate.atosRealizados}
+                            {rate.cirurgiasConcluidas}
                           </td>
                           <td className="py-3 px-4 text-center font-mono text-slate-500">
                             {formatMinString(rate.tempoDisponivelMin)}
